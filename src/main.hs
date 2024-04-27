@@ -12,20 +12,15 @@ import qualified Data.ByteString.Char8 as BS
 data Config = Config
     { port :: Int
     , webRoot :: FilePath
+    , nginxRules :: [(String, String)]
     }
 
 defaultConfig :: Config
 defaultConfig = Config
     { port = 8080
     , webRoot = "/var/www/html"
+    , nginxRules = []
     }
-
-readConfig :: FilePath -> IO Config
-readConfig configFile = do
-    contents <- readFile configFile
-    let configLines = lines contents
-        settings = map parseConfigLine configLines
-    return $ foldl applySetting defaultConfig settings
 
 parseConfigLine :: String -> (String, String)
 parseConfigLine line =
@@ -35,15 +30,32 @@ parseConfigLine line =
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
+parseNginxConfig :: String -> [(String, String)]
+parseNginxConfig config = map parseNginxConfigLine (lines config)
+
+parseNginxConfigLine :: String -> (String, String)
+parseNginxConfigLine line =
+    let (directive, value) = break (== ' ') line
+    in (trim directive, trim $ dropWhile (== ' ') value)
+
+readConfig :: FilePath -> IO Config
+readConfig configFile = do
+    contents <- readFile configFile
+    let configLines = lines contents
+        settings = map parseConfigLine configLines
+        nginxConfig = parseNginxConfig contents
+    return $ foldl applySetting (foldl applySetting defaultConfig nginxConfig) settings
+
 applySetting :: Config -> (String, String) -> Config
 applySetting config ("port", value) = config { port = read value }
 applySetting config ("webRoot", value) = config { webRoot = value }
 applySetting config _ = config
 
-handleRequest :: Handle -> FilePath -> IO ()
-handleRequest handle webRoot = do
+handleRequest :: Handle -> Config -> IO ()
+handleRequest handle config = do
     request <- BS.hGetLine handle
-    let fileName = webRoot ++ getRequestPath (BS.unpack request)
+    let modifiedPath = applyNginxRules (BS.unpack request) (nginxRules config)
+        fileName = webRoot config ++ getRequestPath modifiedPath
     fileExists <- doesFileExist fileName
     if fileExists
         then do
@@ -54,7 +66,7 @@ handleRequest handle webRoot = do
             BS.hPut handle content
         else do
             let status = "404 Not Found"
-                errorPage = webRoot ++ "/404.html"
+                errorPage = webRoot config ++ "/404.html"
             pageExists <- doesFileExist errorPage
             if pageExists
                 then do
@@ -79,12 +91,22 @@ getRequestPath request =
         then "/index.html"
         else path
 
-handleClient :: Socket -> FilePath -> IO ()
-handleClient sock webRoot = do
+applyNginxRules :: String -> [(String, String)] -> String
+applyNginxRules path rules =
+    foldl' (\p (from, to) -> replace from to p) path rules
+
+replace :: Eq a => [a] -> [a] -> [a] -> [a]
+replace _ _ [] = []
+replace from to input@(x:xs)
+    | from `isPrefixOf` input = to ++ replace from to (drop (length from) input)
+    | otherwise = x : replace from to xs
+
+handleClient :: Socket -> Config -> IO ()
+handleClient sock config = do
     (client, _) <- accept sock
-    asyncId <- async $ finally (handleRequest client webRoot) (sClose client)
+    asyncId <- async $ finally (handleRequest client config) (sClose client)
     wait asyncId
-    handleClient sock webRoot
+    handleClient sock config
 
 main :: IO ()
 main = withSocketsDo $ do
@@ -96,4 +118,4 @@ main = withSocketsDo $ do
     bind sock (SockAddrInet (fromIntegral $ port config) iNADDR_ANY)
     listen sock 1000
     putStrLn $ "Server listening on port " ++ show (port config) ++ "..."
-    handleClient sock (webRoot config)
+    handleClient sock config
