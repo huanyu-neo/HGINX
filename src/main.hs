@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 import Network.Socket
 import Control.Concurrent.Async
 import Control.Exception
@@ -5,6 +7,7 @@ import System.IO
 import System.Directory
 import Data.List
 import Data.Maybe
+import qualified Data.ByteString.Char8 as BS
 
 data Config = Config
     { port :: Int
@@ -39,16 +42,16 @@ applySetting config _ = config
 
 handleRequest :: Handle -> FilePath -> IO ()
 handleRequest handle webRoot = do
-    request <- hGetLine handle
-    let fileName = webRoot ++ getRequestPath request
+    request <- BS.hGetLine handle
+    let fileName = webRoot ++ getRequestPath (BS.unpack request)
     fileExists <- doesFileExist fileName
     if fileExists
         then do
             hPutStrLn handle "HTTP/1.1 200 OK"
             hPutStrLn handle "Content-Type: text/html"
             hPutStrLn handle ""
-            content <- readFile fileName
-            hPutStr handle content
+            content <- BS.readFile fileName
+            BS.hPut handle content
         else do
             let status = "404 Not Found"
                 errorPage = webRoot ++ "/404.html"
@@ -58,16 +61,15 @@ handleRequest handle webRoot = do
                     hPutStrLn handle $ "HTTP/1.1 " ++ status
                     hPutStrLn handle $ "Content-Type: text/html"
                     hPutStrLn handle ""
-                    content <- readFile errorPage
-                    hPutStr handle content
+                    content <- BS.readFile errorPage
+                    BS.hPut handle content
                 else do
                     hPutStrLn handle $ "HTTP/1.1 " ++ status
                     hPutStrLn handle $ "Content-Type: text/html"
                     hPutStrLn handle ""
                     hPutStrLn handle $ "<h1>" ++ status ++ "</h1>"
-                    hPutStrLn handel "<p>The sun goes down,just like our server.</p>"
+                    hPutStrLn handle "<p>The sun goes down, just like our server.</p>"
     hClose handle
-
 
 getRequestPath :: String -> FilePath
 getRequestPath request =
