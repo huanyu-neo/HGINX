@@ -50,9 +50,24 @@ handleRequest handle webRoot = do
             content <- readFile fileName
             hPutStr handle content
         else do
-            hPutStrLn handle "HTTP/1.1 404 Not Found"
-            hPutStrLn handle ""
+            let status = "404 Not Found"
+                errorPage = webRoot ++ "/404.html"
+            pageExists <- doesFileExist errorPage
+            if pageExists
+                then do
+                    hPutStrLn handle $ "HTTP/1.1 " ++ status
+                    hPutStrLn handle $ "Content-Type: text/html"
+                    hPutStrLn handle ""
+                    content <- readFile errorPage
+                    hPutStr handle content
+                else do
+                    hPutStrLn handle $ "HTTP/1.1 " ++ status
+                    hPutStrLn handle $ "Content-Type: text/html"
+                    hPutStrLn handle ""
+                    hPutStrLn handle $ "<h1>" ++ status ++ "</h1>"
+                    hPutStrLn handel "<p>The sun goes down,just like our server.</p>"
     hClose handle
+
 
 getRequestPath :: String -> FilePath
 getRequestPath request =
@@ -77,6 +92,6 @@ main = withSocketsDo $ do
     sock <- socket AF_INET Stream 0
     setSocketOption sock ReuseAddr 1
     bind sock (SockAddrInet (fromIntegral $ port config) iNADDR_ANY)
-    listen sock 1000  -- 支持 1000 个等待队列
+    listen sock 1000
     putStrLn $ "Server listening on port " ++ show (port config) ++ "..."
     handleClient sock (webRoot config)
