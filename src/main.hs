@@ -1,5 +1,5 @@
 import Network.Socket
-import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Exception
 import System.IO
 import System.Directory
@@ -62,6 +62,13 @@ getRequestPath request =
         then "/index.html"
         else path
 
+handleClient :: Socket -> FilePath -> IO ()
+handleClient sock webRoot = do
+    (client, _) <- accept sock
+    asyncId <- async $ finally (handleRequest client webRoot) (sClose client)
+    wait asyncId
+    handleClient sock webRoot
+
 main :: IO ()
 main = withSocketsDo $ do
     putStrLn "Starting Haskell server..."
@@ -70,8 +77,6 @@ main = withSocketsDo $ do
     sock <- socket AF_INET Stream 0
     setSocketOption sock ReuseAddr 1
     bind sock (SockAddrInet (fromIntegral $ port config) iNADDR_ANY)
-    listen sock 10
+    listen sock 1000  -- 支持 1000 个等待队列
     putStrLn $ "Server listening on port " ++ show (port config) ++ "..."
-    forever $ do
-        (client, _) <- accept sock
-        forkIO $ handleRequest client (webRoot config)
+    handleClient sock (webRoot config)
