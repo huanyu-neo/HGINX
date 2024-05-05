@@ -13,7 +13,7 @@ HGINX is a high-performance web server written in Haskell, designed to deliver l
 - **Security:** Built-in security features to protect against common web vulnerabilities.
 - **Flexibility:** Highly configurable to suit various web application needs.
 
-# Contributing
+## Contributing
 We welcome contributions from the community! To contribute to HGINX, follow these steps:
 
 1. Fork the repository
